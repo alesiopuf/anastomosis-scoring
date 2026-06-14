@@ -11,11 +11,16 @@ def angle_between_vectors(v1, v2):
 
 
 def calculate_string_length(group):
-    return np.sum(np.linalg.norm(np.diff(group, axis=0), axis=1))
+    """Stitch length: ``(p1, p2, distance)`` for the two farthest-apart points."""
+    pts = np.asarray(group, dtype=float)
+    diff = pts[:, None, :] - pts[None, :, :]
+    dmat = np.linalg.norm(diff, axis=-1)
+    i, j = np.unravel_index(dmat.argmax(), dmat.shape)
+    return pts[i], pts[j], float(dmat.max())
 
 
 def calculate_stitch_lengths(stitches):
-    return [calculate_string_length(group) for group in stitches.values()]
+    return [calculate_string_length(group)[2] for group in stitches.values()]
 
 
 def threshold_by_percentage(stitches, percent):

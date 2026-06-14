@@ -34,7 +34,7 @@ def extract_oblique_stitch(a, b, stitches, img, cfg):
     labels = []
 
     for label, group in stitches.items():
-        if calculate_string_length(group) < cfg.oblique_min_size_factor * median:
+        if calculate_string_length(group)[2] < cfg.oblique_min_size_factor * median:
             continue
 
         mean = group.mean(axis=0)
@@ -132,12 +132,7 @@ def extract_general_bite_size(a, b, stitches, img, cfg):
     for group in stitches.values():
         if len(group) < 2:
             continue
-        pts = group.astype(float)
-        diff = pts[:, None, :] - pts[None, :, :]
-        dmat = np.linalg.norm(diff, axis=-1)
-        i, j = np.unravel_index(dmat.argmax(), dmat.shape)
-        p1, p2 = pts[i], pts[j]
-        bite_size = float(dmat.max())
+        p1, p2, bite_size = calculate_string_length(group)
         bite_sizes.append(bite_size)
         labels.append(Label(
             pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
@@ -212,15 +207,10 @@ def extract_wide_large_bite(a, b, stitches, img, cfg):
     bite_points = []
     labels = []
     for label, group in stitches.items():
-        length = calculate_string_length(group)
+        p1, p2, length = calculate_string_length(group)
         if length > max_threshold:
             bite_points.extend(group.tolist())
             count += 1
-        pts = group.astype(float)
-        diff = pts[:, None, :] - pts[None, :, :]
-        dmat = np.linalg.norm(diff, axis=-1)
-        i, j = np.unravel_index(dmat.argmax(), dmat.shape)
-        p1, p2 = pts[i], pts[j]
         labels.append(Label(
             pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
             text=f'{length:.1f}',
@@ -245,15 +235,10 @@ def extract_excessive_tightening(a, b, stitches, img, cfg):
     labels = []
     count = 0
     for label, group in stitches.items():
-        length = calculate_string_length(group)
+        p1, p2, length = calculate_string_length(group)
         if length < min_threshold:
             partial_points.extend(group.tolist())
             count += 1
-        pts = group.astype(float)
-        diff = pts[:, None, :] - pts[None, :, :]
-        dmat = np.linalg.norm(diff, axis=-1)
-        i, j = np.unravel_index(dmat.argmax(), dmat.shape)
-        p1, p2 = pts[i], pts[j]
         labels.append(Label(
             pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
             text=f'{length:.1f}',
@@ -287,17 +272,12 @@ def extract_partial_thickness(a, b, stitches, img, cfg):
                 has_above = True
             elif cross_product < 0:
                 has_below = True
-        group_length = calculate_string_length(group)
+        p1, p2, group_length = calculate_string_length(group)
         if (has_above and not has_below and group_length <= cfg.partial_thickness_pct * stitches_mean_length) or \
            (not has_above and has_below and group_length <= cfg.partial_thickness_pct * stitches_mean_length):
             partial_points.extend(group.tolist())
             count += 1
         pos = "above" if has_above and not has_below else ("below" if not has_above and has_below else "both")
-        pts = group.astype(float)
-        diff = pts[:, None, :] - pts[None, :, :]
-        dmat = np.linalg.norm(diff, axis=-1)
-        i, j = np.unravel_index(dmat.argmax(), dmat.shape)
-        p1, p2 = pts[i], pts[j]
         labels.append(Label(
             pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
             text=f'{group_length:.1f}\n{pos}',
