@@ -1,4 +1,4 @@
-"""ALI anastomosis scorer — Flask backend.
+"""Anastomosis scorer — Flask backend.
 
 Serves the single-page UI plus three JSON endpoints: /api/meta (feature and
 threshold spec), /api/samples (bundled example images) and /api/analyze
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, url_for
 
-from ali_core import analyze, meta, PipelineError
+from scoring_core import analyze, meta, PipelineError
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25 MB upload cap

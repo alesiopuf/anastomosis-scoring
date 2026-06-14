@@ -1,6 +1,6 @@
 "use strict";
 
-const HISTORY_KEY = "ali_history_v1";
+const HISTORY_KEY = "anastomosis_history_v1";
 const HISTORY_CAP = 60;
 
 const state = {
@@ -350,7 +350,7 @@ function exportCsv() {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const a = el("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `ali-scores-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `anastomosis-scores-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

@@ -1,4 +1,4 @@
-"""The seven ALI feature extractors (forked from ali-detection).
+"""The seven feature extractors (forked from the upstream detection pipeline).
 
 Same logic as the original, with two adaptations: each extractor takes a Config
 instead of module-level threshold constants (so the UI can override per request),

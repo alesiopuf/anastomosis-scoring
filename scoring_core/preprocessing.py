@@ -1,4 +1,4 @@
-"""Image preprocessing and suture-line extraction (forked from ali-detection).
+"""Image preprocessing and suture-line extraction (forked from the upstream detection pipeline).
 
 The pixel operations match the validated pipeline; the only change is that the
 entry point also accepts an in-memory BGR image, not just a file path.

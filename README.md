@@ -1,16 +1,16 @@
-# ALI Anastomosis Assessment
+# Anastomosis Assessment
 
 A small Flask web app for scoring microsurgical end-to-end anastomoses against
-the ALI rubric. Upload an intraluminal photo, pick which criteria to evaluate,
+an error taxonomy rubric. Upload an intraluminal photo, pick which criteria to evaluate,
 and the pipeline returns a value and an annotated diagnostic overlay for each.
 
-The scoring core (`ali_core/`) is forked from the `ali-detection` pipeline and
+The scoring core (`scoring_core/`) is forked from the upstream detection pipeline and
 kept deterministic — same preprocessing and feature logic as the thesis, wrapped
 so it can run on uploaded images and accept per-request threshold overrides.
 
 ## Features
 
-The seven ALI criteria, scored independently:
+The seven criteria, scored independently:
 
 - **Oblique stitch** — stitches angled rather than perpendicular to the line
 - **Gaps between knots** — excessive spacing between adjacent stitches
@@ -37,11 +37,6 @@ and starts the app:
 uv run python app.py
 ```
 
-Then open <http://127.0.0.1:5001>.
-
-To install the dependencies without starting the server (e.g. for editor
-tooling), run `uv sync`.
-
 ## Usage
 
 1. Drop in an intraluminal photo of a completed anastomosis, or click one of the
@@ -58,7 +53,7 @@ be exported to CSV.
 
 ```
 app.py                  Flask routes (/, /api/meta, /api/samples, /api/analyze)
-ali_core/
+scoring_core/
   config.py             fixed preprocessing params + the Config threshold dataclass
   preprocessing.py      image preprocessing and suture-line extraction
   features.py           the seven feature extractors + overlay drawing

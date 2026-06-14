@@ -1,7 +1,7 @@
 [project]
-name = "ali-scorer-web"
+name = "anastomosis-scorer-web"
 version = "0.1.0"
-description = "Web app for scoring microsurgical anastomoses (ALI rubric) in training"
+description = "Web app for scoring microsurgical anastomoses against an error taxonomy rubric in training"
 requires-python = ">=3.12"
 dependencies = [
     "flask>=3.0",
