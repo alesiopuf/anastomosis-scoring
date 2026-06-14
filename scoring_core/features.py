@@ -2,14 +2,14 @@
 
 Same logic as the original, with two adaptations: each extractor takes a Config
 instead of module-level threshold constants (so the UI can override per request),
-and each draws its diagnostic overlay onto a matplotlib ax passed in by the caller.
+and each returns ``(value, PlotSpec)`` where the PlotSpec is a matplotlib-free
+description of its diagnostic overlay. Rendering lives in plotting.py; see
+:func:`scoring_core.plotting.render`.
 """
-import matplotlib
-matplotlib.use("Agg")  # headless rendering; set before pyplot is imported anywhere
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import numpy as np
 
-from .utils import (  # noqa: E402
+from .plotting import PlotSpec, Scatter, Line, Polyline, Label
+from .utils import (
     angle_between_vectors,
     calculate_stitch_lengths,
     calculate_string_length,
@@ -17,35 +17,12 @@ from .utils import (  # noqa: E402
 )
 
 
-def annotate_plot(plot_ctx, annotations):
-    for ann in annotations:
-        if 'lines' in ann:
-            for l in ann['lines']:
-                plot_ctx.plot([l[0][0], l[1][0]], [l[0][1], l[1][1]], color='lime', linestyle='-', linewidth=1.6)
-        if 'line' in ann:
-            l = ann['line']
-            plot_ctx.plot([l[0][0], l[1][0]], [l[0][1], l[1][1]], color='lime', linestyle='-', linewidth=1.6)
-
-        offset_x, offset_y = 5, 5
-        if 'line' in ann:
-            p1, p2 = ann['line']
-            dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-            dist = np.sqrt(dx ** 2 + dy ** 2)
-            if dist > 0:
-                offset_x, offset_y = (-dy / dist) * 7, (dx / dist) * 7
-        elif 'lines' in ann and len(ann['lines']) > 0:
-            p1, p2 = ann['lines'][0]
-            dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-            dist = np.sqrt(dx ** 2 + dy ** 2)
-            if dist > 0:
-                offset_x, offset_y = (-dy / dist) * 7, (dx / dist) * 7
-
-        plot_ctx.text(ann['pos'][0] + offset_x, ann['pos'][1] + offset_y,
-                      ann['text'], color='lime', fontsize=11, fontweight='bold', ha='center', va='center',
-                      bbox=dict(facecolor='#222222', alpha=0.85, edgecolor='none', pad=0.5))
+def _anast_line(a, b):
+    """The blue anastomosis baseline segment shared by every overlay."""
+    return Line(a, b)
 
 
-def extract_oblique_stitch(a, b, stitches, img, cfg, verbose=False, ax=None):
+def extract_oblique_stitch(a, b, stitches, img, cfg):
     anastomosis_vec = np.array(b) - np.array(a)
     anastomosis_len = np.linalg.norm(anastomosis_vec)
     u = anastomosis_vec / (anastomosis_len + 1e-6)
@@ -54,7 +31,7 @@ def extract_oblique_stitch(a, b, stitches, img, cfg, verbose=False, ax=None):
     oblique_points = []
     count = 0
     median = np.median(calculate_stitch_lengths(stitches))
-    annotations = []
+    labels = []
 
     for label, group in stitches.items():
         if calculate_string_length(group) < cfg.oblique_min_size_factor * median:
@@ -85,40 +62,32 @@ def extract_oblique_stitch(a, b, stitches, img, cfg, verbose=False, ax=None):
         s_plot = stitch_dir if s_dot_n >= 0 else -stitch_dir
         p_orient = p_anast + s_plot * line_len
 
-        annotations.append({
-            'pos': (p_anast[0], p_anast[1]),
-            'text': f'{angle:.0f}°',
-            'lines': [(p_anast, p_perp), (p_anast, p_orient)],
-        })
+        labels.append(Label(
+            pos=(p_anast[0], p_anast[1]),
+            text=f'{angle:.0f}°',
+            lines=[(p_anast, p_perp), (p_anast, p_orient)],
+        ))
 
     oblique_points = np.array(oblique_points)
     points = np.vstack(list(stitches.values()))
 
-    if verbose:
-        plot_ctx = ax if ax is not None else plt
-        plot_ctx.imshow(img, cmap='gray')
-        plot_ctx.scatter(points[:, 0], points[:, 1], s=3, c='red')
-        if oblique_points.size > 0:
-            plot_ctx.scatter(oblique_points[:, 0], oblique_points[:, 1], s=12, c='yellow')
-        plot_ctx.plot([a[0], b[0]], [a[1], b[1]], 'blue', linewidth=2.5)
-        annotate_plot(plot_ctx, annotations)
-        if ax is not None:
-            ax.axis('off')
-        else:
-            plt.axis('off')
-            plt.show()
-
-    return count
+    spec = PlotSpec(
+        img=img,
+        scatters=[Scatter(points), Scatter(oblique_points, color="yellow", size=12)],
+        lines=[_anast_line(a, b)],
+        labels=labels,
+    )
+    return count, spec
 
 
-def extract_large_distance_between_two_knots(a, b, stitches, img, cfg, verbose=False, ax=None):
+def extract_large_distance_between_two_knots(a, b, stitches, img, cfg):
     centroids = []
     for group in stitches.values():
         if group.size > 0:
             centroids.append(group.mean(axis=0))
     centroids = np.array(centroids)
     if len(centroids) < 2:
-        return 0
+        return 0, PlotSpec(img=img, lines=[_anast_line(a, b)])
 
     line_vec = np.array(b) - np.array(a)
     line_unit = line_vec / np.linalg.norm(line_vec)
@@ -130,38 +99,36 @@ def extract_large_distance_between_two_knots(a, b, stitches, img, cfg, verbose=F
     avg_distance = np.mean(distances)
     large_indices = np.where(distances > cfg.large_distance_factor * avg_distance)[0]
     count = len(large_indices)
+    large_set = set(large_indices.tolist())
 
-    annotations = []
+    # Yellow segment for each large gap; a green leader line for the rest (the
+    # large gaps keep only the yellow line so it stays visible — skip_line).
+    gap_lines = []
+    labels = []
     for idx in range(len(sorted_centroids) - 1):
         p1, p2 = sorted_centroids[idx], sorted_centroids[idx + 1]
-        annotations.append({
-            'pos': ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
-            'text': f'{distances[idx]:.1f}',
-            'line': (p1, p2),
-        })
+        is_large = idx in large_set
+        if is_large:
+            gap_lines.append(Line(p1, p2, color="yellow", linewidth=2))
+        labels.append(Label(
+            pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
+            text=f'{distances[idx]:.1f}',
+            line=(p1, p2),
+            skip_line=is_large,
+        ))
 
-    if verbose:
-        plot_ctx = ax if ax is not None else plt
-        all_points = np.vstack(list(stitches.values()))
-        plot_ctx.imshow(img, cmap='gray')
-        plot_ctx.scatter(all_points[:, 0], all_points[:, 1], s=3, c='red')
-        for idx in large_indices:
-            p1, p2 = sorted_centroids[idx], sorted_centroids[idx + 1]
-            plot_ctx.plot([p1[0], p2[0]], [p1[1], p2[1]], 'yellow', linewidth=2)
-        annotate_plot(plot_ctx, annotations)
-        plot_ctx.plot([a[0], b[0]], [a[1], b[1]], 'blue', linewidth=2.5)
-        if ax is not None:
-            ax.axis('off')
-        else:
-            plt.axis('off')
-            plt.show()
-
-    return count
+    spec = PlotSpec(
+        img=img,
+        scatters=[Scatter(np.vstack(list(stitches.values())))],
+        lines=gap_lines + [_anast_line(a, b)],
+        labels=labels,
+    )
+    return count, spec
 
 
-def extract_general_bite_size(a, b, stitches, img, cfg, verbose=False, ax=None):
+def extract_general_bite_size(a, b, stitches, img, cfg):
     bite_sizes = []
-    annotations = []
+    labels = []
     for group in stitches.values():
         if len(group) < 2:
             continue
@@ -172,42 +139,36 @@ def extract_general_bite_size(a, b, stitches, img, cfg, verbose=False, ax=None):
         p1, p2 = pts[i], pts[j]
         bite_size = float(dmat.max())
         bite_sizes.append(bite_size)
-        annotations.append({
-            'pos': ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
-            'text': f'{bite_size:.1f}',
-            'line': (p1, p2),
-        })
+        labels.append(Label(
+            pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
+            text=f'{bite_size:.1f}',
+            line=(p1, p2),
+        ))
 
     cv = np.std(bite_sizes) / np.mean(bite_sizes)
 
-    if verbose:
-        plot_ctx = ax if ax is not None else plt
-        all_points = np.vstack(list(stitches.values()))
-        plot_ctx.imshow(img, cmap='gray')
-        plot_ctx.scatter(all_points[:, 0], all_points[:, 1], s=3, c='red')
-        plot_ctx.plot([a[0], b[0]], [a[1], b[1]], 'blue', linewidth=2.5)
-        annotate_plot(plot_ctx, annotations)
-        if ax is not None:
-            ax.axis('off')
-        else:
-            plt.axis('off')
-            plt.show()
+    spec = PlotSpec(
+        img=img,
+        scatters=[Scatter(np.vstack(list(stitches.values())))],
+        lines=[_anast_line(a, b)],
+        labels=labels,
+    )
 
     if cfg.general_bite_cv_min <= cv <= cfg.general_bite_cv_max:
-        return 'not_sure'
-    return 'unequal' if cv > cfg.general_bite_cv_max else 'constant'
+        return 'not_sure', spec
+    return ('unequal' if cv > cfg.general_bite_cv_max else 'constant'), spec
 
 
-def extract_disruption_of_anastomosis_line(a, b, stitches, img, cfg, verbose=False, ax=None):
+def extract_disruption_of_anastomosis_line(a, b, stitches, img, cfg):
     a = np.array(a)
     b = np.array(b)
     line_vec = b - a
     norm_len = np.linalg.norm(line_vec)
     if norm_len == 0 or not stitches:
-        return 'no'
+        return 'no', PlotSpec(img=img, lines=[_anast_line(a, b)])
     unit_line_vec = line_vec / norm_len
 
-    centroids, distances, projections, stitch_sizes, annotations = [], [], [], [], []
+    centroids, distances, projections, stitch_sizes, labels = [], [], [], [], []
     for group in stitches.values():
         group_np = np.array(group)
         stitch_size = np.linalg.norm(group_np.max(axis=0) - group_np.min(axis=0))
@@ -221,41 +182,35 @@ def extract_disruption_of_anastomosis_line(a, b, stitches, img, cfg, verbose=Fal
         centroids.append(centroid)
         distances.append(distance)
         projections.append(proj_scalar)
-        annotations.append({
-            'pos': ((centroid[0] + proj_point[0]) / 2, (centroid[1] + proj_point[1]) / 2),
-            'text': f'{distance:.1f}',
-            'line': (centroid, proj_point),
-        })
+        labels.append(Label(
+            pos=((centroid[0] + proj_point[0]) / 2, (centroid[1] + proj_point[1]) / 2),
+            text=f'{distance:.1f}',
+            line=(centroid, proj_point),
+        ))
 
     mean_distance = np.mean(distances)
     avg_stitch_size = np.mean(stitch_sizes)
     disruption_ratio = mean_distance / avg_stitch_size if avg_stitch_size > 0 else 0
 
-    if verbose:
-        plot_ctx = ax if ax is not None else plt
-        centroids_np = np.array(centroids)
-        sorted_indices = np.argsort(projections)
-        sorted_centroids = centroids_np[sorted_indices]
-        plot_ctx.imshow(img, cmap='gray')
-        plot_ctx.plot([a[0], b[0]], [a[1], b[1]], 'blue', linewidth=2.5)
-        plot_ctx.plot(sorted_centroids[:, 0], sorted_centroids[:, 1], 'yellow', linestyle='--')
-        annotate_plot(plot_ctx, annotations)
-        if ax is not None:
-            ax.axis('off')
-        else:
-            plt.axis('off')
-            plt.show()
+    centroids_np = np.array(centroids)
+    sorted_centroids = centroids_np[np.argsort(projections)]
+    spec = PlotSpec(
+        img=img,
+        lines=[_anast_line(a, b)],
+        polylines=[Polyline(sorted_centroids, color="yellow", linestyle='--')],
+        labels=labels,
+    )
 
     if cfg.disruption_ratio_min <= disruption_ratio <= cfg.disruption_ratio_max:
-        return 'not_sure'
-    return 'yes' if disruption_ratio > cfg.disruption_ratio_max else 'no'
+        return 'not_sure', spec
+    return ('yes' if disruption_ratio > cfg.disruption_ratio_max else 'no'), spec
 
 
-def extract_wide_large_bite(a, b, stitches, img, cfg, verbose=False, ax=None):
+def extract_wide_large_bite(a, b, stitches, img, cfg):
     count = 0
     min_threshold, max_threshold = threshold_by_percentage(stitches, cfg.wide_large_bite_pct)
     bite_points = []
-    annotations = []
+    labels = []
     for label, group in stitches.items():
         length = calculate_string_length(group)
         if length > max_threshold:
@@ -266,34 +221,28 @@ def extract_wide_large_bite(a, b, stitches, img, cfg, verbose=False, ax=None):
         dmat = np.linalg.norm(diff, axis=-1)
         i, j = np.unravel_index(dmat.argmax(), dmat.shape)
         p1, p2 = pts[i], pts[j]
-        annotations.append({
-            'pos': ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
-            'text': f'{length:.1f}',
-            'line': (p1, p2),
-        })
+        labels.append(Label(
+            pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
+            text=f'{length:.1f}',
+            line=(p1, p2),
+        ))
 
-    if verbose:
-        plot_ctx = ax if ax is not None else plt
-        plot_ctx.imshow(img, cmap='gray')
-        points = np.vstack(list(stitches.values()))
-        plot_ctx.scatter(points[:, 0], points[:, 1], s=3, c='red')
-        if len(bite_points) > 0:
-            bite_points = np.array(bite_points)
-            plot_ctx.scatter(bite_points[:, 0], bite_points[:, 1], s=12, c='yellow')
-        plot_ctx.plot([a[0], b[0]], [a[1], b[1]], 'blue', linewidth=2.5)
-        annotate_plot(plot_ctx, annotations)
-        if ax is not None:
-            ax.axis('off')
-        else:
-            plt.axis('off')
-            plt.show()
-    return count
+    spec = PlotSpec(
+        img=img,
+        scatters=[
+            Scatter(np.vstack(list(stitches.values()))),
+            Scatter(np.array(bite_points), color="yellow", size=12),
+        ],
+        lines=[_anast_line(a, b)],
+        labels=labels,
+    )
+    return count, spec
 
 
-def extract_excessive_tightening(a, b, stitches, img, cfg, verbose=False, ax=None):
+def extract_excessive_tightening(a, b, stitches, img, cfg):
     min_threshold, max_threshold = threshold_by_percentage(stitches, cfg.excessive_tightening_pct)
     partial_points = []
-    annotations = []
+    labels = []
     count = 0
     for label, group in stitches.items():
         length = calculate_string_length(group)
@@ -305,36 +254,30 @@ def extract_excessive_tightening(a, b, stitches, img, cfg, verbose=False, ax=Non
         dmat = np.linalg.norm(diff, axis=-1)
         i, j = np.unravel_index(dmat.argmax(), dmat.shape)
         p1, p2 = pts[i], pts[j]
-        annotations.append({
-            'pos': ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
-            'text': f'{length:.1f}',
-            'line': (p1, p2),
-        })
+        labels.append(Label(
+            pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
+            text=f'{length:.1f}',
+            line=(p1, p2),
+        ))
 
-    if verbose:
-        plot_ctx = ax if ax is not None else plt
-        plot_ctx.imshow(img, cmap='gray')
-        points = np.vstack(list(stitches.values()))
-        plot_ctx.scatter(points[:, 0], points[:, 1], s=3, c='red')
-        if len(partial_points) > 0:
-            partial_points = np.array(partial_points)
-            plot_ctx.scatter(partial_points[:, 0], partial_points[:, 1], s=12, c='yellow')
-        plot_ctx.plot([a[0], b[0]], [a[1], b[1]], 'blue', linewidth=2.5)
-        annotate_plot(plot_ctx, annotations)
-        if ax is not None:
-            ax.axis('off')
-        else:
-            plt.axis('off')
-            plt.show()
-    return count
+    spec = PlotSpec(
+        img=img,
+        scatters=[
+            Scatter(np.vstack(list(stitches.values()))),
+            Scatter(np.array(partial_points), color="yellow", size=12),
+        ],
+        lines=[_anast_line(a, b)],
+        labels=labels,
+    )
+    return count, spec
 
 
-def extract_partial_thickness(a, b, stitches, img, cfg, verbose=False, ax=None):
+def extract_partial_thickness(a, b, stitches, img, cfg):
     count = 0
     vector_ab = np.array([b[0] - a[0], b[1] - a[1]])
     stitches_mean_length = np.mean(calculate_stitch_lengths(stitches))
     partial_points = []
-    annotations = []
+    labels = []
     for group in stitches.values():
         has_above = has_below = False
         for point in group:
@@ -355,25 +298,19 @@ def extract_partial_thickness(a, b, stitches, img, cfg, verbose=False, ax=None):
         dmat = np.linalg.norm(diff, axis=-1)
         i, j = np.unravel_index(dmat.argmax(), dmat.shape)
         p1, p2 = pts[i], pts[j]
-        annotations.append({
-            'pos': ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
-            'text': f'{group_length:.1f}\n{pos}',
-            'line': (p1, p2),
-        })
+        labels.append(Label(
+            pos=((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2),
+            text=f'{group_length:.1f}\n{pos}',
+            line=(p1, p2),
+        ))
 
-    if verbose:
-        plot_ctx = ax if ax is not None else plt
-        plot_ctx.imshow(img, cmap='gray')
-        points = np.vstack(list(stitches.values()))
-        plot_ctx.scatter(points[:, 0], points[:, 1], s=3, c='red')
-        if len(partial_points) > 0:
-            partial_points = np.array(partial_points)
-            plot_ctx.scatter(partial_points[:, 0], partial_points[:, 1], s=12, c='yellow')
-        plot_ctx.plot([a[0], b[0]], [a[1], b[1]], 'blue', linewidth=2.5)
-        annotate_plot(plot_ctx, annotations)
-        if ax is not None:
-            ax.axis('off')
-        else:
-            plt.axis('off')
-            plt.show()
-    return count
+    spec = PlotSpec(
+        img=img,
+        scatters=[
+            Scatter(np.vstack(list(stitches.values()))),
+            Scatter(np.array(partial_points), color="yellow", size=12),
+        ],
+        lines=[_anast_line(a, b)],
+        labels=labels,
+    )
+    return count, spec

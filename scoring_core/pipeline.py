@@ -11,6 +11,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from .config import Config
+from .plotting import render
 from .preprocessing import preprocess_image, extract_anast_line_and_stitches
 from .features import (
     extract_oblique_stitch,
@@ -177,7 +178,8 @@ def analyze(image_bytes: bytes, selected_keys, overrides=None) -> dict:
     for feature in selected:
         try:
             fig, ax = _new_canvas()
-            value = feature["fn"](a, b, stitches, img_orig, cfg, verbose=True, ax=ax)
+            value, spec = feature["fn"](a, b, stitches, img_orig, cfg)
+            render(spec, ax)
             display, status = _classify(feature, value)
             image = _fig_to_b64(fig)
             results.append({
