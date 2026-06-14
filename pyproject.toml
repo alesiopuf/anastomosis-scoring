@@ -1,0 +1,17 @@
+[project]
+name = "ali-scorer-web"
+version = "0.1.0"
+description = "Web app for scoring microsurgical anastomoses (ALI rubric) in training"
+requires-python = ">=3.12"
+dependencies = [
+    "flask>=3.0",
+    "numpy>=2.1",
+    "opencv-python-headless>=4.11,<5",
+    "scikit-image==0.26.0",
+    "matplotlib>=3.9",
+    "pillow>=10.0",
+]
+
+[tool.uv]
+managed = true
+package = false

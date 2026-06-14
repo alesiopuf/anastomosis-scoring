@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALI · Anastomosis Assessment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 28 28">
+          <path d="M2 14h5l2.5-7 4 14 2.5-7H26" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <div class="brand-text">
+        <h1>ALI Anastomosis Assessment</h1>
+        <p>Deterministic intraluminal end-product scoring</p>
+      </div>
+    </div>
+    <button id="history-toggle" class="btn btn-ghost" type="button">
+      History <span id="history-count" class="pill">0</span>
+    </button>
+  </header>
+
+  <main class="layout">
+    <!-- Controls -->
+    <aside class="panel controls">
+      <section class="block block-image">
+        <h2 class="block-title">Specimen image</h2>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload an anastomosis image">
+          <input id="file-input" type="file" accept="image/*" hidden />
+          <div id="dropzone-empty" class="dropzone-empty">
+            <svg viewBox="0 0 24 24" class="upload-icon" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 19h14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <p><strong>Drop image</strong> or click to browse</p>
+            <span class="hint">JPG / PNG · intraluminal photograph</span>
+          </div>
+          <img id="preview" class="preview" alt="Selected anastomosis preview" hidden />
+        </div>
+        <div class="samples">
+          <span class="samples-label">Reference specimens</span>
+          <div id="sample-strip" class="sample-strip"></div>
+        </div>
+      </section>
+
+      <section class="block block-features">
+        <div class="block-head">
+          <h2 class="block-title">Assessment criteria</h2>
+          <label class="select-all">
+            <input id="select-all" type="checkbox" checked />
+            <span>Select all</span>
+          </label>
+        </div>
+        <div id="feature-list" class="feature-list"><!-- built from /api/meta --></div>
+      </section>
+
+      <section class="block block-advanced">
+        <button id="advanced-toggle" class="advanced-toggle" type="button" aria-expanded="false">
+          <span class="chev">▸</span> Threshold overrides
+        </button>
+        <div id="advanced-panel" class="advanced-panel" hidden>
+          <p class="advanced-note">Defaults are the calibrated values from the validation study.</p>
+          <div id="threshold-list" class="threshold-list"><!-- built from /api/meta --></div>
+          <button id="reset-thresholds" class="btn btn-ghost btn-sm" type="button">Reset to calibrated</button>
+        </div>
+      </section>
+
+      <button id="score-btn" class="btn btn-primary btn-block" type="button" disabled>
+        Run assessment
+      </button>
+    </aside>
+
+    <!-- Results -->
+    <section class="panel results">
+      <div id="empty-state" class="empty-state">
+        <svg viewBox="0 0 48 48" class="empty-illu" aria-hidden="true">
+          <path d="M4 24h7l3.5-11 6 22 3.5-11H44" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h2>No assessment yet</h2>
+        <p>Select an intraluminal specimen, choose the criteria to evaluate, and the pipeline
+           returns a measured value and an annotated diagnostic image for each.</p>
+      </div>
+
+      <div id="loading" class="loading" hidden>
+        <div class="spinner"></div>
+        <p>Analysing suture geometry…</p>
+      </div>
+
+      <div id="error-box" class="error-box" hidden></div>
+
+      <div id="results" class="results-body" hidden>
+        <div class="results-head">
+          <h2 id="result-filename" class="result-filename"></h2>
+          <p id="result-meta" class="result-meta"></p>
+        </div>
+        <figure class="overview">
+          <img id="overview-img" alt="Detected stitches and anastomotic line" />
+          <figcaption>Detected stitches (red) over the fitted anastomotic line (blue). Confirm the detection is correct before reviewing the scores.</figcaption>
+        </figure>
+        <div id="result-grid" class="result-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- History drawer -->
+  <div id="history-drawer" class="history-drawer" hidden>
+    <div class="history-head">
+      <h2>Session history</h2>
+      <button id="history-close" class="btn btn-ghost btn-sm" type="button" aria-label="Close history">✕</button>
+    </div>
+    <div class="history-actions">
+      <button id="export-csv" class="btn btn-secondary btn-sm" type="button">Export CSV</button>
+      <button id="clear-history" class="btn btn-ghost btn-sm" type="button">Clear</button>
+    </div>
+    <div id="history-list" class="history-list"></div>
+    <p id="history-empty" class="history-empty">No specimens assessed in this session.</p>
+  </div>
+  <div id="drawer-scrim" class="drawer-scrim" hidden></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
